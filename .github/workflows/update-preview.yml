@@ -1,0 +1,223 @@
+name: Pull verified TableRock preview
+
+on:
+  schedule:
+    - cron: "13,43 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tablerock-preview-delivery
+  cancel-in-progress: true
+
+jobs:
+  update:
+    name: Verify release and update tap
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Download exact preview asset set
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          metadata=$(gh release view preview --repo tailrocks/tablerock \
+            --json name,targetCommitish)
+          version=$(jq -er '.name | sub("^Preview "; "")' <<< "$metadata")
+          source_sha=$(jq -er '.targetCommitish' <<< "$metadata")
+          [[ "$source_sha" =~ ^[0-9a-f]{40}$ ]] || {
+            echo "::error::preview target is not a full commit SHA: $source_sha"
+            exit 1
+          }
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+-preview\.[0-9]+\+[0-9a-f]{7}$ ]] || {
+            echo "::error::preview version is malformed: $version"
+            exit 1
+          }
+
+          mkdir artifacts
+          gh release download preview --repo tailrocks/tablerock --dir artifacts
+
+          cat > expected-assets <<'EOF'
+          tablerock-aarch64-apple-darwin.tar.gz
+          tablerock-aarch64-apple-darwin.tar.gz.sha256
+          tablerock-aarch64-unknown-linux-gnu.tar.gz
+          tablerock-aarch64-unknown-linux-gnu.tar.gz.sha256
+          tablerock-app-aarch64-apple-darwin.zip
+          tablerock-app-aarch64-apple-darwin.zip.sha256
+          tablerock-x86_64-apple-darwin.tar.gz
+          tablerock-x86_64-apple-darwin.tar.gz.sha256
+          tablerock-x86_64-unknown-linux-gnu.tar.gz
+          tablerock-x86_64-unknown-linux-gnu.tar.gz.sha256
+          EOF
+          find artifacts -maxdepth 1 -type f -exec basename {} \; | sort > actual-assets
+          diff -u expected-assets actual-assets
+
+          {
+            echo "version=$version"
+            echo "source_sha=$source_sha"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Verify checksums and GitHub provenance
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ steps.release.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          archives=(
+            artifacts/tablerock-aarch64-apple-darwin.tar.gz
+            artifacts/tablerock-x86_64-apple-darwin.tar.gz
+            artifacts/tablerock-aarch64-unknown-linux-gnu.tar.gz
+            artifacts/tablerock-x86_64-unknown-linux-gnu.tar.gz
+            artifacts/tablerock-app-aarch64-apple-darwin.zip
+          )
+          for archive in "${archives[@]}"; do
+            expected=$(tr -d '\n' < "${archive}.sha256")
+            actual=$(sha256sum "$archive" | awk '{print $1}')
+            test "$expected" = "$actual" || {
+              echo "::error::checksum mismatch for $archive"
+              exit 1
+            }
+            gh attestation verify "$archive" \
+              --repo tailrocks/tablerock \
+              --signer-workflow tailrocks/tablerock/.github/workflows/preview.yml \
+              --source-ref refs/heads/main \
+              --source-digest "$SOURCE_SHA" \
+              --deny-self-hosted-runners >/dev/null
+          done
+
+      - name: Verify Linux executable identity
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          set -euo pipefail
+          mkdir verified-binary
+          tar -xzf artifacts/tablerock-x86_64-unknown-linux-gnu.tar.gz \
+            -C verified-binary
+          test "$(verified-binary/tablerock --version)" = "tablerock ${VERSION}"
+
+      - name: Verify native application structure
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          set -euo pipefail
+          mkdir verified-app
+          unzip -q artifacts/tablerock-app-aarch64-apple-darwin.zip \
+            -d verified-app
+          test -x verified-app/TableRock.app/Contents/MacOS/TableRock
+          grep -F "$VERSION" verified-app/TableRock.app/Contents/Info.plist >/dev/null
+
+      - name: Rewrite formula and cask
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+          SOURCE_SHA: ${{ steps.release.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          arm64_macos=$(cat artifacts/tablerock-aarch64-apple-darwin.tar.gz.sha256)
+          x86_macos=$(cat artifacts/tablerock-x86_64-apple-darwin.tar.gz.sha256)
+          arm64_linux=$(cat artifacts/tablerock-aarch64-unknown-linux-gnu.tar.gz.sha256)
+          x86_linux=$(cat artifacts/tablerock-x86_64-unknown-linux-gnu.tar.gz.sha256)
+          app_arm64=$(cat artifacts/tablerock-app-aarch64-apple-darwin.zip.sha256)
+          cask_version=${VERSION/+/,}
+
+          cat > Formula/tablerock-preview.rb <<EOF
+          # source-sha: ${SOURCE_SHA}
+          class TablerockPreview < Formula
+            desc "PostgreSQL, ClickHouse, and Redis workbench"
+            homepage "https://github.com/tailrocks/tablerock"
+            version "${VERSION}"
+            license "Apache-2.0"
+
+            on_macos do
+              on_arm do
+                url "https://github.com/tailrocks/tablerock/releases/download/preview/tablerock-aarch64-apple-darwin.tar.gz"
+                sha256 "${arm64_macos}"
+              end
+              on_intel do
+                url "https://github.com/tailrocks/tablerock/releases/download/preview/tablerock-x86_64-apple-darwin.tar.gz"
+                sha256 "${x86_macos}"
+              end
+            end
+
+            on_linux do
+              on_arm do
+                url "https://github.com/tailrocks/tablerock/releases/download/preview/tablerock-aarch64-unknown-linux-gnu.tar.gz"
+                sha256 "${arm64_linux}"
+              end
+              on_intel do
+                url "https://github.com/tailrocks/tablerock/releases/download/preview/tablerock-x86_64-unknown-linux-gnu.tar.gz"
+                sha256 "${x86_linux}"
+              end
+            end
+
+            def install
+              bin.install "tablerock"
+            end
+
+            test do
+              assert_match version.to_s, shell_output("#{bin}/tablerock --version")
+            end
+          end
+          EOF
+
+          cat > Casks/tablerock-app@preview.rb <<EOF
+          # source-sha: ${SOURCE_SHA}
+          cask "tablerock-app@preview" do
+            version "${cask_version}"
+            sha256 "${app_arm64}"
+
+            url "https://github.com/tailrocks/tablerock/releases/download/preview/tablerock-app-aarch64-apple-darwin.zip"
+            name "TableRock Preview"
+            desc "Native PostgreSQL, ClickHouse, and Redis workbench preview"
+            homepage "https://github.com/tailrocks/tablerock"
+
+            depends_on macos: ">= :tahoe"
+            depends_on arch: :arm64
+
+            app "TableRock.app"
+
+            caveats <<~EOS
+              This preview is ad-hoc signed and not notarized.
+              On first launch, right-click TableRock and choose Open, or run:
+                xattr -dr com.apple.quarantine /Applications/TableRock.app
+            EOS
+
+            zap trash: "~/Library/Application Support/TableRock"
+          end
+          EOF
+
+      - name: Commit verified tap update
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.release.outputs.version }}
+          SOURCE_SHA: ${{ steps.release.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          files=(Formula/tablerock-preview.rb Casks/tablerock-app@preview.rb)
+          if git diff --quiet -- "${files[@]}"; then
+            echo "Tap already matches ${SOURCE_SHA}"
+            exit 0
+          fi
+
+          message=$(printf '%s\n\n%s\n%s' \
+            "chore: update preview ${VERSION}" \
+            "Signed-off-by: github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>" \
+            "Co-authored-by: Codex <codex@openai.com>")
+          for file in "${files[@]}"; do
+            current_sha=$(gh api \
+              "repos/${GITHUB_REPOSITORY}/contents/${file}" --jq .sha)
+            content=$(base64 < "$file" | tr -d '\n')
+            gh api --method PUT \
+              "repos/${GITHUB_REPOSITORY}/contents/${file}" \
+              -f message="$message" \
+              -f content="$content" \
+              -f sha="$current_sha" >/dev/null
+          done
