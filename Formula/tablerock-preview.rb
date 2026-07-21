@@ -8,22 +8,22 @@ class TablerockPreview < Formula
   on_macos do
     on_arm do
       url "https://github.com/tailrocks/tablerock/releases/download/preview/tablerock-aarch64-apple-darwin.tar.gz"
-      sha256 "a028ed3fe610144ffc92d7087b85015b036e7ab06510ea8b2dd3af6b9a155173"
+      sha256 "ecc579cce1c0ec6561dda8a8b3431c92038c469164e0f77c5c29c1eadef30dd8"
     end
     on_intel do
       url "https://github.com/tailrocks/tablerock/releases/download/preview/tablerock-x86_64-apple-darwin.tar.gz"
-      sha256 "bbe58150e4c789260d7d9f3b24a0950d37b236a473a292fb1edd731569b498a2"
+      sha256 "35bfb9eeded39a9b9969faa662997ac21224ef0638e15c7f93b32f9dcdeeac1c"
     end
   end
 
   on_linux do
     on_arm do
       url "https://github.com/tailrocks/tablerock/releases/download/preview/tablerock-aarch64-unknown-linux-gnu.tar.gz"
-      sha256 "9ba20417a38a7581bb5466e7837c7f27445c53922f11ecde7b8a30c6656d5816"
+      sha256 "383c79ddcec3399f104d7855036033459ab81dff2ab85b8e0bfe213aa7f54e0a"
     end
     on_intel do
       url "https://github.com/tailrocks/tablerock/releases/download/preview/tablerock-x86_64-unknown-linux-gnu.tar.gz"
-      sha256 "2fae87709e91ffc96f6407e5e38bcd67b68432fa82b9cf3fc4a7fd0276090c0c"
+      sha256 "41305ed8bff94d4c838bf5af5c682edc03fa862f92340d7b36134e9cc3edd939"
     end
   end
 
