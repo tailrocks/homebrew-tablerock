@@ -8,7 +8,7 @@ cask "tablerock-app@preview" do
   desc "Native PostgreSQL, ClickHouse, and Redis workbench preview"
   homepage "https://github.com/tailrocks/tablerock"
 
-  depends_on macos: ">= :tahoe"
+  depends_on macos: :tahoe
   depends_on arch: :arm64
 
   app "TableRock.app"
