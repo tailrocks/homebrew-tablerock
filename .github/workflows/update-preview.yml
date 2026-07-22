@@ -235,6 +235,7 @@ jobs:
               -f message="$message" \
               -f content="$content" \
               -f sha="$current_sha" >/dev/null
+          done
 
   update-required:
     needs: [update]
@@ -253,4 +254,3 @@ jobs:
         run: |
           echo "$NEEDS_JSON" | jq -e 'to_entries | map(.value.result) | any(. == "failure" or . == "cancelled") | not' >/dev/null \
             || { echo "A required job failed or was cancelled." >&2; exit 1; }
-          done
