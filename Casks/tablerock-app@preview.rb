@@ -1,7 +1,7 @@
-# source-sha: 942b1a9e42864b86fe9a98c5c86db815a0343991
+# source-sha: 165dda737787d6819e3124bb14c7a3e8936f6901
 cask "tablerock-app@preview" do
-  version "0.1.0-preview.794,942b1a9"
-  sha256 "956e4530c479f6997d0e2762404b9011eda454351d6fa4c1cb4b8b727c605c56"
+  version "0.1.0-preview.807,165dda7"
+  sha256 "a645288c1f754f97ddcc70e6fdc86be6c2cb7c17703ffb567e933ee7a56ebc4d"
 
   url "https://github.com/tailrocks/tablerock/releases/download/preview/tablerock-app-aarch64-apple-darwin.zip"
   name "TableRock Preview"
