@@ -1,29 +1,29 @@
-# source-sha: e2ccfceb79de926ecfbfe6e1df906b535332b663
+# source-sha: f6591b04f7a601d413f0f8af9cf780a128018e37
 class TablerockPreview < Formula
   desc "PostgreSQL, ClickHouse, and Redis workbench"
   homepage "https://github.com/tailrocks/tablerock"
-  version "0.1.0-preview.763+e2ccfce"
+  version "0.1.0-preview.765+f6591b0"
   license "Apache-2.0"
 
   on_macos do
     on_arm do
       url "https://github.com/tailrocks/tablerock/releases/download/preview/tablerock-aarch64-apple-darwin.tar.gz"
-      sha256 "1577740ca924615f537be8a1e4d118566c08d0688c3f28dde67145748762c20e"
+      sha256 "899c7d64bc5ec12298b4ea1122d5719f53a09ed3d2e901c77d10979bf3304232"
     end
     on_intel do
       url "https://github.com/tailrocks/tablerock/releases/download/preview/tablerock-x86_64-apple-darwin.tar.gz"
-      sha256 "447e6319e76823f354d3c0175b24dfa25da65f3169ded3208246ea64c4c93c81"
+      sha256 "2c3e245554360d759f187489d6b1cf70608b65a1268fa167578dc3b9591b03b4"
     end
   end
 
   on_linux do
     on_arm do
       url "https://github.com/tailrocks/tablerock/releases/download/preview/tablerock-aarch64-unknown-linux-gnu.tar.gz"
-      sha256 "a30489e816b9b164b41e34454b879c55ddbb94abc9676f57d6aadfb5909613d7"
+      sha256 "2021fb0772424ad88c79e85d1e990af9c4aa5c8e6d67a27acff1f9d243d6532e"
     end
     on_intel do
       url "https://github.com/tailrocks/tablerock/releases/download/preview/tablerock-x86_64-unknown-linux-gnu.tar.gz"
-      sha256 "5323c1affa12f7c31adc893440c2ddc9e6143a77bc0816a3ab230f04ba553d44"
+      sha256 "324c49c4fd63c05ca4b6d63f1fab4cda5160c2d514d9fb9cba73810c933b8c63"
     end
   end
 
