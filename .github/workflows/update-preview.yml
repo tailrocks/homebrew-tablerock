@@ -208,12 +208,25 @@ jobs:
           end
           EOF
 
-      - name: Commit verified tap update
+      - name: Mint package updater token
+        if: matrix.config.writer
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v2.1.4
+        with:
+          app-id: ${{ vars.PACKAGE_UPDATER_APP_ID }}
+          private-key: ${{ secrets.PACKAGE_UPDATER_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+
+      - name: Open verified tap update pull request
         if: matrix.config.writer
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
           VERSION: ${{ steps.release.outputs.version }}
           SOURCE_SHA: ${{ steps.release.outputs.source_sha }}
+          BOT_LOGIN: ${{ vars.PACKAGE_UPDATER_BOT_LOGIN }}
+          BOT_EMAIL: ${{ vars.PACKAGE_UPDATER_BOT_EMAIL }}
+          BRANCH: package-update/verified/preview
         run: |
           set -euo pipefail
           files=(Formula/tablerock-preview.rb Casks/tablerock-app@preview.rb)
@@ -222,20 +235,23 @@ jobs:
             exit 0
           fi
 
-          message=$(printf '%s\n\n%s\n%s' \
-            "chore: update preview ${VERSION}" \
-            "Signed-off-by: github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>" \
-            "Co-authored-by: Codex <codex@openai.com>")
-          for file in "${files[@]}"; do
-            current_sha=$(gh api \
-              "repos/${GITHUB_REPOSITORY}/contents/${file}" --jq .sha)
-            content=$(base64 < "$file" | tr -d '\n')
-            gh api --method PUT \
-              "repos/${GITHUB_REPOSITORY}/contents/${file}" \
-              -f message="$message" \
-              -f content="$content" \
-              -f sha="$current_sha" >/dev/null
-          done
+          git config user.name "$BOT_LOGIN"
+          git config user.email "$BOT_EMAIL"
+          git fetch --no-tags origin "refs/heads/$BRANCH:refs/remotes/origin/$BRANCH" || true
+          git switch -C "$BRANCH"
+          git add -- "${files[@]}"
+          git commit --signoff -m "chore: update preview ${VERSION}" \
+            -m "Co-authored-by: Codex <codex@openai.com>"
+          gh auth setup-git
+          git push --force-with-lease origin "$BRANCH"
+          OPEN_PR_COUNT="$(gh pr list --state open --head "$BRANCH" --base main --json number --jq 'length')"
+          test "$OPEN_PR_COUNT" -le 1
+          if test "$OPEN_PR_COUNT" -eq 0; then
+            gh pr create --base main --head "$BRANCH" \
+              --title "chore: update preview ${VERSION}" \
+              --body "Verified preview update from tailrocks/tablerock@${SOURCE_SHA}."
+          fi
+          gh pr merge "$BRANCH" --auto --squash --delete-branch
 
   update-required:
     needs: [update]
