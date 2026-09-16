@@ -2,16 +2,16 @@
 schema = 2
 [inputs]
 config	fa41f7142f2490cd
-scan	661907912ddb79a8
-generator	45
+scan	ebd710cf05e49219
+generator	46
 [outputs]
 .github/actionlint.yaml	ec35f48ae7e90e0e
 .github/ci/project.toml	709d8fc65783cf9f
-.github/workflows/ci-main.yml	85de708745f4241f
-.github/workflows/ci-policy.yml	63c7622e90373db7
-.github/workflows/ci-pr.yml	f4bc34bc2996c6eb
-.github/workflows/ci-unit-homebrew.yml	6db1755f15fe3416
-.github/workflows/maintenance.yml	9b6dbd5ee7fb11b5
+.github/workflows/ci-main.yml	7df0197430b015a7
+.github/workflows/ci-policy.yml	bb3501d5a4e8e5dd
+.github/workflows/ci-pr.yml	4e23dd260d99a969
+.github/workflows/ci-unit-homebrew.yml	aec517a4e8d7c204
+.github/workflows/maintenance.yml	78ebc95950f75ce3
 .github/workflows/nightly.yml	76e5e2bc12a599c6
 .github/workflows/package-update.yml	dd65b34fe3f8db10
 .github/workflows/update-preview.yml	ec3d93e8802d24e0
