@@ -1,0 +1,272 @@
+name: Pull verified TableRock preview
+
+on:
+  schedule:
+    - cron: "13,43 * * * *"
+  workflow_dispatch:
+    inputs:
+      lanes:
+        description: velnor (default) | github | both
+        type: choice
+        default: velnor
+        options: [velnor, github, both]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: update-preview-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  update:
+    name: Verify release and update tap (${{ matrix.config.lane }})
+    strategy:
+      fail-fast: false
+      matrix:
+        config: ${{ fromJSON((github.event_name == 'workflow_dispatch' && inputs.lanes == 'both') && '[{"lane":"Velnor","runner":["self-hosted","velnor-target-mvp"],"writer":true},{"lane":"GitHub","runner":"ubuntu-26.04","writer":false}]' || (github.event_name == 'workflow_dispatch' && inputs.lanes == 'github') && '[{"lane":"GitHub","runner":"ubuntu-26.04","writer":true}]' || '[{"lane":"Velnor","runner":["self-hosted","velnor-target-mvp"],"writer":true}]') }}
+    runs-on: ${{ matrix.config.runner }}
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: jdx/mise-action@3c2e0cf82a5b2e5249f0d3635a4d83d0ae861518 # v4.2.5
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download exact preview asset set
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          metadata=$(gh release view preview --repo tailrocks/tablerock \
+            --json name,targetCommitish)
+          version=$(jq -er '.name | sub("^Preview "; "")' <<< "$metadata")
+          source_sha=$(jq -er '.targetCommitish' <<< "$metadata")
+          [[ "$source_sha" =~ ^[0-9a-f]{40}$ ]] || {
+            echo "::error::preview target is not a full commit SHA: $source_sha"
+            exit 1
+          }
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+-preview\.[0-9]+\+[0-9a-f]{7}$ ]] || {
+            echo "::error::preview version is malformed: $version"
+            exit 1
+          }
+
+          mkdir artifacts
+          gh release download preview --repo tailrocks/tablerock --dir artifacts
+
+          cat > expected-assets <<'EOF'
+          tablerock-aarch64-apple-darwin.tar.gz
+          tablerock-aarch64-apple-darwin.tar.gz.sha256
+          tablerock-aarch64-unknown-linux-gnu.tar.gz
+          tablerock-aarch64-unknown-linux-gnu.tar.gz.sha256
+          tablerock-app-aarch64-apple-darwin.zip
+          tablerock-app-aarch64-apple-darwin.zip.sha256
+          tablerock-x86_64-apple-darwin.tar.gz
+          tablerock-x86_64-apple-darwin.tar.gz.sha256
+          tablerock-x86_64-unknown-linux-gnu.tar.gz
+          tablerock-x86_64-unknown-linux-gnu.tar.gz.sha256
+          EOF
+          find artifacts -maxdepth 1 -type f -exec basename {} \; | sort > actual-assets
+          diff -u expected-assets actual-assets
+
+          {
+            echo "version=$version"
+            echo "source_sha=$source_sha"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Verify checksums and GitHub provenance
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ steps.release.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          archives=(
+            artifacts/tablerock-aarch64-apple-darwin.tar.gz
+            artifacts/tablerock-x86_64-apple-darwin.tar.gz
+            artifacts/tablerock-aarch64-unknown-linux-gnu.tar.gz
+            artifacts/tablerock-x86_64-unknown-linux-gnu.tar.gz
+            artifacts/tablerock-app-aarch64-apple-darwin.zip
+          )
+          for archive in "${archives[@]}"; do
+            expected=$(tr -d '\n' < "${archive}.sha256")
+            actual=$(sha256sum "$archive" | awk '{print $1}')
+            test "$expected" = "$actual" || {
+              echo "::error::checksum mismatch for $archive"
+              exit 1
+            }
+            gh attestation verify "$archive" \
+              --repo tailrocks/tablerock \
+              --signer-workflow tailrocks/tablerock/.github/workflows/preview.yml \
+              --source-ref refs/heads/main \
+              --source-digest "$SOURCE_SHA" \
+              --deny-self-hosted-runners >/dev/null
+          done
+
+      - name: Verify Linux executable identity
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          set -euo pipefail
+          mkdir verified-binary
+          tar -xzf artifacts/tablerock-x86_64-unknown-linux-gnu.tar.gz \
+            -C verified-binary
+          test "$(verified-binary/tablerock --version)" = "tablerock ${VERSION}"
+
+      - name: Verify native application structure
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          set -euo pipefail
+          mkdir verified-app
+          unzip -q artifacts/tablerock-app-aarch64-apple-darwin.zip \
+            -d verified-app
+          test -x verified-app/TableRock.app/Contents/MacOS/TableRock
+          grep -F "$VERSION" verified-app/TableRock.app/Contents/Info.plist >/dev/null
+
+      - name: Rewrite formula and cask
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+          SOURCE_SHA: ${{ steps.release.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          arm64_macos=$(cat artifacts/tablerock-aarch64-apple-darwin.tar.gz.sha256)
+          x86_macos=$(cat artifacts/tablerock-x86_64-apple-darwin.tar.gz.sha256)
+          arm64_linux=$(cat artifacts/tablerock-aarch64-unknown-linux-gnu.tar.gz.sha256)
+          x86_linux=$(cat artifacts/tablerock-x86_64-unknown-linux-gnu.tar.gz.sha256)
+          app_arm64=$(cat artifacts/tablerock-app-aarch64-apple-darwin.zip.sha256)
+          cask_version=${VERSION/+/,}
+
+          cat > Formula/tablerock-preview.rb <<EOF
+          # source-sha: ${SOURCE_SHA}
+          class TablerockPreview < Formula
+            desc "PostgreSQL, ClickHouse, and Redis workbench"
+            homepage "https://github.com/tailrocks/tablerock"
+            version "${VERSION}"
+            license "Apache-2.0"
+
+            on_macos do
+              on_arm do
+                url "https://github.com/tailrocks/tablerock/releases/download/preview/tablerock-aarch64-apple-darwin.tar.gz"
+                sha256 "${arm64_macos}"
+              end
+              on_intel do
+                url "https://github.com/tailrocks/tablerock/releases/download/preview/tablerock-x86_64-apple-darwin.tar.gz"
+                sha256 "${x86_macos}"
+              end
+            end
+
+            on_linux do
+              on_arm do
+                url "https://github.com/tailrocks/tablerock/releases/download/preview/tablerock-aarch64-unknown-linux-gnu.tar.gz"
+                sha256 "${arm64_linux}"
+              end
+              on_intel do
+                url "https://github.com/tailrocks/tablerock/releases/download/preview/tablerock-x86_64-unknown-linux-gnu.tar.gz"
+                sha256 "${x86_linux}"
+              end
+            end
+
+            def install
+              bin.install "tablerock"
+            end
+
+            test do
+              assert_match version.to_s, shell_output("#{bin}/tablerock --version")
+            end
+          end
+          EOF
+
+          cat > Casks/tablerock-app@preview.rb <<EOF
+          # source-sha: ${SOURCE_SHA}
+          cask "tablerock-app@preview" do
+            version "${cask_version}"
+            sha256 "${app_arm64}"
+
+            url "https://github.com/tailrocks/tablerock/releases/download/preview/tablerock-app-aarch64-apple-darwin.zip"
+            name "TableRock Preview"
+            desc "Native PostgreSQL, ClickHouse, and Redis workbench preview"
+            homepage "https://github.com/tailrocks/tablerock"
+
+            depends_on macos: :tahoe
+            depends_on arch: :arm64
+
+            app "TableRock.app"
+
+            caveats <<~EOS
+              This preview is ad-hoc signed and not notarized.
+              On first launch, right-click TableRock and choose Open, or run:
+                xattr -dr com.apple.quarantine /Applications/TableRock.app
+            EOS
+
+            zap trash: "~/Library/Application Support/TableRock"
+          end
+          EOF
+
+      - name: Mint package updater token
+        if: matrix.config.writer
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v2.1.4
+        with:
+          app-id: ${{ vars.PACKAGE_UPDATER_APP_ID }}
+          private-key: ${{ secrets.PACKAGE_UPDATER_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+
+      - name: Open verified tap update pull request
+        if: matrix.config.writer
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          VERSION: ${{ steps.release.outputs.version }}
+          SOURCE_SHA: ${{ steps.release.outputs.source_sha }}
+          BOT_LOGIN: ${{ vars.PACKAGE_UPDATER_BOT_LOGIN }}
+          BOT_EMAIL: ${{ vars.PACKAGE_UPDATER_BOT_EMAIL }}
+          BRANCH: package-update/verified/preview
+        run: |
+          set -euo pipefail
+          files=(Formula/tablerock-preview.rb Casks/tablerock-app@preview.rb)
+          if git diff --quiet -- "${files[@]}"; then
+            echo "Tap already matches ${SOURCE_SHA}"
+            exit 0
+          fi
+
+          git config user.name "$BOT_LOGIN"
+          git config user.email "$BOT_EMAIL"
+          git fetch --no-tags origin "refs/heads/$BRANCH:refs/remotes/origin/$BRANCH" || true
+          git switch -C "$BRANCH"
+          git add -- "${files[@]}"
+          git commit --signoff -m "chore: update preview ${VERSION}" \
+            -m "Co-authored-by: Codex <codex@openai.com>"
+          gh auth setup-git
+          git push --force-with-lease origin "$BRANCH"
+          OPEN_PR_COUNT="$(gh pr list --state open --head "$BRANCH" --base main --json number --jq 'length')"
+          test "$OPEN_PR_COUNT" -le 1
+          if test "$OPEN_PR_COUNT" -eq 0; then
+            gh pr create --base main --head "$BRANCH" \
+              --title "chore: update preview ${VERSION}" \
+              --body "Verified preview update from tailrocks/tablerock@${SOURCE_SHA}."
+          fi
+          gh pr merge "$BRANCH" --auto --squash --delete-branch
+
+  update-required:
+    needs: [update]
+    if: always()
+    name: Update preview required (${{ matrix.config.lane }})
+    strategy:
+      fail-fast: false
+      matrix:
+        config: ${{ fromJSON((github.event_name == 'workflow_dispatch' && inputs.lanes == 'both') && '[{"lane":"Velnor","runner":["self-hosted","velnor-target-mvp"],"writer":true},{"lane":"GitHub","runner":"ubuntu-26.04","writer":false}]' || (github.event_name == 'workflow_dispatch' && inputs.lanes == 'github') && '[{"lane":"GitHub","runner":"ubuntu-26.04","writer":true}]' || '[{"lane":"Velnor","runner":["self-hosted","velnor-target-mvp"],"writer":true}]') }}
+    runs-on: ${{ matrix.config.runner }}
+    timeout-minutes: 5
+    steps:
+      - name: Fail on any failed or cancelled need
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
+        run: |
+          echo "$NEEDS_JSON" | jq -e 'to_entries | map(.value.result) | any(. == "failure" or . == "cancelled") | not' >/dev/null \
+            || { echo "A required job failed or was cancelled." >&2; exit 1; }
