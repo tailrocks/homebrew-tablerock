@@ -1,6 +1,7 @@
 schema = 1
 
 [generator]
+revision = "e05aee6de1d1614d752b4d1b1d26a49ac2c5ef91"
 repository = "tailrocks/homebrew-tablerock"
 
 [workflow]
