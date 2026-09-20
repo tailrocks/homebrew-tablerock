@@ -17,12 +17,18 @@ ruleset_required_status_checks = ["ci-required"]
 ruleset_external_status_checks = ["DCO"]
 
 [[units]]
-id = "homebrew"
+id = "tap-local"
+kind = "docs"
+label = "Tap local checkout"
+ci_tasks = ["brew:tap-local"]
 
 [[units.products]]
 name = "local-tap"
 task = "brew:tap-local"
 
+[[units]]
+id = "homebrew"
+
 [[units.prerequisites]]
-producer = "homebrew"
+producer = "tap-local"
 product = "local-tap"
