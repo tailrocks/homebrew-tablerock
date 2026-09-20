@@ -38,8 +38,10 @@ jq -Sn --arg source_repository tailrocks/tablerock --arg source_ref refs/tags/v$
   shasum -a 256 Formula/tablerock.rb Casks/tablerock-app.rb > "$tmp/first.sha"
   VELNOR_VERIFIED_PACKAGE_DIR="$verified" ./scripts/package-update.sh
   shasum -a 256 -c "$tmp/first.sha"
-  grep -F 'version "1.2.3"' Formula/tablerock.rb
+  ! grep -q '^  version ' Formula/tablerock.rb
+  grep -F 'releases/download/v1.2.3/tablerock-1.2.3' Formula/tablerock.rb
   grep -F 'version "1.2.3"' Casks/tablerock-app.rb
+  grep -F 'v#{version}/tablerock-app-#{version}' Casks/tablerock-app.rb
   test "$(grep -h -c 'sha256 "[0-9a-f]\{64\}"' Formula/tablerock.rb Casks/tablerock-app.rb | awk '{n+=$1} END{print n}')" -eq 5
 )
 

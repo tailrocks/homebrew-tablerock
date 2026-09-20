@@ -48,7 +48,6 @@ cat > Formula/tablerock.rb <<EOF
 class Tablerock < Formula
   desc "PostgreSQL, ClickHouse, and Redis workbench"
   homepage "https://github.com/tailrocks/tablerock"
-  version "$version"
   license "Apache-2.0"
 
   on_macos do
@@ -89,7 +88,7 @@ cask "tablerock-app" do
   version "$version"
   sha256 "$app_arm"
 
-  url "https://github.com/tailrocks/tablerock/releases/download/$tag/tablerock-app-$version-aarch64-apple-darwin.zip"
+  url "https://github.com/tailrocks/tablerock/releases/download/v#{version}/tablerock-app-#{version}-aarch64-apple-darwin.zip"
   name "TableRock"
   desc "Native PostgreSQL, ClickHouse, and Redis workbench"
   homepage "https://github.com/tailrocks/tablerock"
