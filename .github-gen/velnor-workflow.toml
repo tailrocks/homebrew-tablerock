@@ -5,7 +5,7 @@ repository = "tailrocks/homebrew-tablerock"
 revision = "4fa7a3a85f141a6bb95bc9bdf0eef9e3ddde165d"
 
 [workflow]
-runners = "both"
+runners = "github"
 automatic_lanes = "github"
 default_dispatch_runner = "github"
 github_runner = "ubuntu-24.04"
@@ -28,6 +28,7 @@ task = "brew:tap-local"
 
 [[units]]
 id = "homebrew"
+capabilities = ["xcode"]
 
 [[units.prerequisites]]
 producer = "tap-local"
