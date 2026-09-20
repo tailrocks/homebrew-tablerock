@@ -15,3 +15,14 @@ default_branch = "main"
 [policy]
 ruleset_required_status_checks = ["ci-required"]
 ruleset_external_status_checks = ["DCO"]
+
+[[units]]
+id = "homebrew"
+
+[[units.products]]
+name = "local-tap"
+task = "brew:tap-local"
+
+[[units.prerequisites]]
+producer = "homebrew"
+product = "local-tap"

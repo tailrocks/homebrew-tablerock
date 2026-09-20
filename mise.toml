@@ -38,5 +38,9 @@ depends = ["actionlint", "shellcheck"]
 [tasks.ci]
 depends = ["build", "test", "lint"]
 
+[tasks."brew:tap-local"]
+description = "Link this checkout as a trusted tap so bare brew audit resolves it"
+run = "tap_dir=\"$(brew --repo)/Library/Taps/tailrocks\" && mkdir -p \"$tap_dir\" && ln -sfn \"$PWD\" \"$tap_dir/homebrew-tablerock\" && brew trust tailrocks/tablerock"
+
 [settings]
 lockfile = true
