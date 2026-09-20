@@ -48,7 +48,6 @@ jobs:
       head_sha: ${{ steps.plan.outputs.head_sha }}
       units: ${{ steps.plan.outputs.units }}
       full_units: ${{ steps.plan.outputs.full_units }}
-      docs_matrix: ${{ steps.plan.outputs.docs_matrix }}
       homebrew_matrix: ${{ steps.plan.outputs.homebrew_matrix }}
     steps:
       - name: Checkout
@@ -144,10 +143,10 @@ jobs:
       unit_dependencies: tap-local
       unit_admission: velnor
   github-tap-local:
-    name: "Documentation · Tap local checkout"
+    name: "Homebrew · Tap local checkout"
     if: ${{ always() && needs.plan.result == 'success' && contains(format(',{0},', needs.plan.outputs.units), ',tap-local,') && (github.event_name == 'pull_request' || (github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'schedule')) || (github.event_name == 'workflow_dispatch' && (github.event.inputs.runner == 'github' || github.event.inputs.runner == 'both' || github.event.inputs.runner == ''))) }}
     needs: [plan]
-    uses: ./.github/workflows/ci-unit-docs.yml
+    uses: ./.github/workflows/ci-unit-homebrew.yml
     with:
       unit: tap-local
       lane: github
@@ -159,10 +158,10 @@ jobs:
       mise_runner: true
       unit_admission: github
   velnor-tap-local:
-    name: "Documentation · Tap local checkout"
+    name: "Homebrew · Tap local checkout"
     if: ${{ always() && needs.plan.result == 'success' && contains(format(',{0},', needs.plan.outputs.units), ',tap-local,') && ((github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'schedule')) || (github.event_name == 'workflow_dispatch' && (github.event.inputs.runner == 'velnor' || github.event.inputs.runner == 'both' || github.event.inputs.runner == ''))) }}
     needs: [plan]
-    uses: ./.github/workflows/ci-unit-docs.yml
+    uses: ./.github/workflows/ci-unit-homebrew.yml
     with:
       unit: tap-local
       lane: velnor
