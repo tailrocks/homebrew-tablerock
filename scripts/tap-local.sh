@@ -24,19 +24,23 @@ mkdir -p "$tap_dir"
 rm -rf "${tap_dir:?}/$OUR_TAP_DIR"
 ln -s "$PWD" "$tap_dir/$OUR_TAP_DIR"
 
-foreign="$(brew tap | grep -v -x "$OUR_TAP" || true)"
-if [ -n "$foreign" ]; then
-  while IFS= read -r tap; do
-    [ -n "$tap" ] || continue
-    brew untap --force "$tap" || true
-  done <<< "$foreign"
+# Untap foreign taps only on CI runners (ephemeral): a local
+# `mise run brew:tap-local` must not destroy the developer's taps.
+if [ "${GITHUB_ACTIONS:-}" = "true" ]; then
+  foreign="$(brew tap | grep -v -x "$OUR_TAP" || true)"
+  if [ -n "$foreign" ]; then
+    while IFS= read -r tap; do
+      [ -n "$tap" ] || continue
+      brew untap --force "$tap" || true
+    done <<< "$foreign"
+  fi
 fi
 brew trust "$OUR_TAP"
 
-# The generated workflow exposes GH_TOKEN (and MISE_GITHUB_TOKEN) to CI steps;
-# `gh auth token` is a fallback for environments where it does not.
+# mise-action exports MISE_GITHUB_TOKEN to CI unit steps (verified live);
+# GH_TOKEN / `gh auth token` are fallbacks for other environments.
 if [ -n "${GITHUB_ENV:-}" ]; then
-  token="${GH_TOKEN:-${MISE_GITHUB_TOKEN:-}}"
+  token="${MISE_GITHUB_TOKEN:-${GH_TOKEN:-}}"
   if [ -z "$token" ] && command -v gh >/dev/null 2>&1; then
     token="$(gh auth token 2>/dev/null || true)"
   fi
