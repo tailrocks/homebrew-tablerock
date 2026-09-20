@@ -124,6 +124,8 @@ jobs:
       full_units: ${{ needs.plan.outputs.full_units }}
       base_sha: ${{ needs.plan.outputs.base_sha }}
       head_sha: ${{ needs.plan.outputs.head_sha }}
+      mise_runner: true
+      unit_dependencies: homebrew
       unit_admission: github
   velnor-homebrew:
     name: "Homebrew · Homebrew"
@@ -138,6 +140,7 @@ jobs:
       full_units: ${{ needs.plan.outputs.full_units }}
       base_sha: ${{ needs.plan.outputs.base_sha }}
       head_sha: ${{ needs.plan.outputs.head_sha }}
+      unit_dependencies: homebrew
       unit_admission: velnor
   ci-required:
     name: ci-required
