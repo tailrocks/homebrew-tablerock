@@ -14,7 +14,7 @@ limitations = ["Project code, build scripts, task runners, and commands are neve
 [workflow]
 github_runner = "ubuntu-24.04"
 velnor_labels = ["self-hosted", "velnor-target-mvp"]
-files = ["ci-main.yml", "ci-policy.yml", "ci-pr.yml", "ci-unit-homebrew.yml", "maintenance.yml", "nightly.yml"]
+files = ["ci-main.yml", "ci-policy.yml", "ci-pr.yml", "ci-unit-docs.yml", "ci-unit-homebrew.yml", "maintenance.yml", "nightly.yml"]
 
 [release]
 enabled = false
@@ -30,4 +30,15 @@ github_pr_commands = ["mise run brew:tap-local", "brew audit --strict --online"]
 github_full_commands = ["mise run brew:tap-local", "brew audit --strict --online"]
 velnor_pr_commands = ["mise run brew:tap-local", "brew audit --strict --online"]
 velnor_full_commands = ["mise run brew:tap-local", "brew audit --strict --online"]
-depends_on = ["homebrew"]
+depends_on = ["tap-local"]
+
+[[unit]]
+id = "tap-local"
+label = "Tap local checkout"
+kind = "docs"
+root = ""
+watch = []
+github_pr_commands = ["mise run brew:tap-local"]
+github_full_commands = ["mise run brew:tap-local"]
+velnor_pr_commands = ["mise run brew:tap-local"]
+velnor_full_commands = ["mise run brew:tap-local"]

@@ -49,6 +49,7 @@ jobs:
       head_sha: ${{ steps.plan.outputs.head_sha }}
       units: ${{ steps.plan.outputs.units }}
       full_units: ${{ steps.plan.outputs.full_units }}
+      docs_matrix: ${{ steps.plan.outputs.docs_matrix }}
       homebrew_matrix: ${{ steps.plan.outputs.homebrew_matrix }}
     steps:
       - name: Checkout
@@ -236,7 +237,7 @@ jobs:
       base_sha: ${{ needs.plan.outputs.base_sha }}
       head_sha: ${{ needs.plan.outputs.head_sha }}
       mise_runner: true
-      unit_dependencies: homebrew
+      unit_dependencies: tap-local
       unit_admission: github
   velnor-homebrew:
     name: "Homebrew · Homebrew"
@@ -251,12 +252,41 @@ jobs:
       full_units: ${{ needs.plan.outputs.full_units }}
       base_sha: ${{ needs.plan.outputs.base_sha }}
       head_sha: ${{ needs.plan.outputs.head_sha }}
-      unit_dependencies: homebrew
+      unit_dependencies: tap-local
+      unit_admission: velnor
+  github-tap-local:
+    name: "Documentation · Tap local checkout"
+    if: ${{ always() && needs.plan.result == 'success' && needs.policy.result == 'success' && contains(format(',{0},', needs.plan.outputs.units), ',tap-local,') && (github.event_name == 'pull_request' || (github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'schedule')) || (github.event_name == 'workflow_dispatch' && (github.event.inputs.runner == 'github' || github.event.inputs.runner == 'both' || github.event.inputs.runner == ''))) }}
+    needs: [plan, policy]
+    uses: ./.github/workflows/ci-unit-docs.yml
+    with:
+      unit: tap-local
+      lane: github
+      selected_units: ${{ needs.plan.outputs.units }}
+      scope: ${{ needs.plan.outputs.scope }}
+      full_units: ${{ needs.plan.outputs.full_units }}
+      base_sha: ${{ needs.plan.outputs.base_sha }}
+      head_sha: ${{ needs.plan.outputs.head_sha }}
+      mise_runner: true
+      unit_admission: github
+  velnor-tap-local:
+    name: "Documentation · Tap local checkout"
+    if: ${{ always() && needs.plan.result == 'success' && needs.policy.result == 'success' && contains(format(',{0},', needs.plan.outputs.units), ',tap-local,') && ((github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'schedule')) || (github.event_name == 'workflow_dispatch' && (github.event.inputs.runner == 'velnor' || github.event.inputs.runner == 'both' || github.event.inputs.runner == ''))) }}
+    needs: [plan, policy]
+    uses: ./.github/workflows/ci-unit-docs.yml
+    with:
+      unit: tap-local
+      lane: velnor
+      selected_units: ${{ needs.plan.outputs.units }}
+      scope: ${{ needs.plan.outputs.scope }}
+      full_units: ${{ needs.plan.outputs.full_units }}
+      base_sha: ${{ needs.plan.outputs.base_sha }}
+      head_sha: ${{ needs.plan.outputs.head_sha }}
       unit_admission: velnor
   ci-required:
     name: ci-required
     if: ${{ always() }}
-    needs: [plan, velnor-lane-admission, policy, github-homebrew, velnor-homebrew]
+    needs: [plan, velnor-lane-admission, policy, github-homebrew, velnor-homebrew, github-tap-local, velnor-tap-local]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
@@ -326,6 +356,46 @@ jobs:
             case "$result" in
               success|skipped) ;;
               *) echo "unselected CI job velnor-homebrew failed unexpectedly: $result" >&2; exit 1 ;;
+            esac
+          fi
+          if [[ "$selected" == *",tap-local,"* ]]; then
+            result="$(result_for_job github-tap-local)"
+            if [[ "$LANE_ADMITTED_GITHUB" == true ]]; then
+              case "$result" in
+                success) ;;
+                *) echo "selected CI job github-tap-local did not pass: $result" >&2; exit 1 ;;
+              esac
+            else
+              case "$result" in
+                skipped) ;;
+                *) echo "selected CI job github-tap-local ran outside its lane admission (LANE_ADMITTED_GITHUB=$LANE_ADMITTED_GITHUB): $result" >&2; exit 1 ;;
+              esac
+            fi
+          else
+            result="$(result_for_job github-tap-local)"
+            case "$result" in
+              success|skipped) ;;
+              *) echo "unselected CI job github-tap-local failed unexpectedly: $result" >&2; exit 1 ;;
+            esac
+          fi
+          if [[ "$selected" == *",tap-local,"* ]]; then
+            result="$(result_for_job velnor-tap-local)"
+            if [[ "$LANE_ADMITTED_VELNOR" == true ]]; then
+              case "$result" in
+                success) ;;
+                *) echo "selected CI job velnor-tap-local did not pass: $result" >&2; exit 1 ;;
+              esac
+            else
+              case "$result" in
+                skipped) ;;
+                *) echo "selected CI job velnor-tap-local ran outside its lane admission (LANE_ADMITTED_VELNOR=$LANE_ADMITTED_VELNOR): $result" >&2; exit 1 ;;
+              esac
+            fi
+          else
+            result="$(result_for_job velnor-tap-local)"
+            case "$result" in
+              success|skipped) ;;
+              *) echo "unselected CI job velnor-tap-local failed unexpectedly: $result" >&2; exit 1 ;;
             esac
           fi
   required:
