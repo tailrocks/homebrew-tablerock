@@ -10,12 +10,10 @@ on:
       runner:
         description: Execution backend
         required: false
-        default: both
+        default: github
         type: choice
         options:
-          - velnor
           - github
-          - both
       scope:
         description: Verification scope
         required: true
@@ -71,7 +69,6 @@ jobs:
           CI_SCOPE_OVERRIDE: ${{ github.event.inputs.scope || '' }}
           BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.inputs.base_sha || github.event.before || 'refs/heads/main' }}
           HEAD_SHA: ${{ github.sha }}
-          VELNOR_LANES: ${{ github.event.inputs.runner || 'both' }}
         run: |
           set -euo pipefail
           if [[ -z "${CI_SCOPE_OVERRIDE:-}" ]]; then unset CI_SCOPE_OVERRIDE; fi
@@ -103,15 +100,6 @@ jobs:
           path: ${{ runner.temp }}/velnor-workflow-runtime
           if-no-files-found: error
           retention-days: 7
-  velnor-lane-admission:
-    name: "Control / Velnor admission"
-    if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    steps:
-      - name: Velnor lane omitted for fork
-        run: |
-          echo '::notice::Velnor lane omitted for fork pull request; validating GitHub lane only.'
   policy:
     name: Policy
     runs-on: ubuntu-24.04
@@ -236,23 +224,9 @@ jobs:
       base_sha: ${{ needs.plan.outputs.base_sha }}
       head_sha: ${{ needs.plan.outputs.head_sha }}
       mise_runner: true
+      apple_executor: true
       unit_dependencies: tap-local
       unit_admission: github
-  velnor-homebrew:
-    name: "Homebrew · Homebrew"
-    if: ${{ always() && needs.plan.result == 'success' && needs.policy.result == 'success' && contains(format(',{0},', needs.plan.outputs.units), ',homebrew,') && ((github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'schedule')) || (github.event_name == 'workflow_dispatch' && (github.event.inputs.runner == 'velnor' || github.event.inputs.runner == 'both' || github.event.inputs.runner == ''))) }}
-    needs: [plan, policy]
-    uses: ./.github/workflows/ci-unit-homebrew.yml
-    with:
-      unit: homebrew
-      lane: velnor
-      selected_units: ${{ needs.plan.outputs.units }}
-      scope: ${{ needs.plan.outputs.scope }}
-      full_units: ${{ needs.plan.outputs.full_units }}
-      base_sha: ${{ needs.plan.outputs.base_sha }}
-      head_sha: ${{ needs.plan.outputs.head_sha }}
-      unit_dependencies: tap-local
-      unit_admission: velnor
   github-tap-local:
     name: "Homebrew · Tap local checkout"
     if: ${{ always() && needs.plan.result == 'success' && needs.policy.result == 'success' && contains(format(',{0},', needs.plan.outputs.units), ',tap-local,') && (github.event_name == 'pull_request' || (github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'schedule')) || (github.event_name == 'workflow_dispatch' && (github.event.inputs.runner == 'github' || github.event.inputs.runner == 'both' || github.event.inputs.runner == ''))) }}
@@ -268,24 +242,10 @@ jobs:
       head_sha: ${{ needs.plan.outputs.head_sha }}
       mise_runner: true
       unit_admission: github
-  velnor-tap-local:
-    name: "Homebrew · Tap local checkout"
-    if: ${{ always() && needs.plan.result == 'success' && needs.policy.result == 'success' && contains(format(',{0},', needs.plan.outputs.units), ',tap-local,') && ((github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'schedule')) || (github.event_name == 'workflow_dispatch' && (github.event.inputs.runner == 'velnor' || github.event.inputs.runner == 'both' || github.event.inputs.runner == ''))) }}
-    needs: [plan, policy]
-    uses: ./.github/workflows/ci-unit-homebrew.yml
-    with:
-      unit: tap-local
-      lane: velnor
-      selected_units: ${{ needs.plan.outputs.units }}
-      scope: ${{ needs.plan.outputs.scope }}
-      full_units: ${{ needs.plan.outputs.full_units }}
-      base_sha: ${{ needs.plan.outputs.base_sha }}
-      head_sha: ${{ needs.plan.outputs.head_sha }}
-      unit_admission: velnor
   ci-required:
     name: ci-required
     if: ${{ always() }}
-    needs: [plan, velnor-lane-admission, policy, github-homebrew, velnor-homebrew, github-tap-local, velnor-tap-local]
+    needs: [plan, policy, github-homebrew, github-tap-local]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
@@ -294,7 +254,6 @@ jobs:
           NEEDS_JSON: ${{ toJSON(needs) }}
           SELECTED_UNITS: ${{ needs.plan.outputs.units }}
           LANE_ADMITTED_GITHUB: ${{ github.event_name == 'pull_request' || (github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'schedule')) || (github.event_name == 'workflow_dispatch' && (github.event.inputs.runner == 'github' || github.event.inputs.runner == 'both' || github.event.inputs.runner == '')) }}
-          LANE_ADMITTED_VELNOR: ${{ (github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'schedule')) || (github.event_name == 'workflow_dispatch' && (github.event.inputs.runner == 'velnor' || github.event.inputs.runner == 'both' || github.event.inputs.runner == '')) }}
         shell: bash
         run: |
           set -euo pipefail
@@ -311,11 +270,6 @@ jobs:
             echo "required CI prerequisite policy did not pass: $result" >&2
             exit 1
           fi
-          result="$(result_for_job velnor-lane-admission)"
-          case "$result" in
-            success|skipped) ;;
-            *) echo "required CI prerequisite velnor-lane-admission did not pass: $result" >&2; exit 1 ;;
-          esac
           selected=",$SELECTED_UNITS,"
           if [[ "$selected" == *",homebrew,"* ]]; then
             result="$(result_for_job github-homebrew)"
@@ -337,26 +291,6 @@ jobs:
               *) echo "unselected CI job github-homebrew failed unexpectedly: $result" >&2; exit 1 ;;
             esac
           fi
-          if [[ "$selected" == *",homebrew,"* ]]; then
-            result="$(result_for_job velnor-homebrew)"
-            if [[ "$LANE_ADMITTED_VELNOR" == true ]]; then
-              case "$result" in
-                success) ;;
-                *) echo "selected CI job velnor-homebrew did not pass: $result" >&2; exit 1 ;;
-              esac
-            else
-              case "$result" in
-                skipped) ;;
-                *) echo "selected CI job velnor-homebrew ran outside its lane admission (LANE_ADMITTED_VELNOR=$LANE_ADMITTED_VELNOR): $result" >&2; exit 1 ;;
-              esac
-            fi
-          else
-            result="$(result_for_job velnor-homebrew)"
-            case "$result" in
-              success|skipped) ;;
-              *) echo "unselected CI job velnor-homebrew failed unexpectedly: $result" >&2; exit 1 ;;
-            esac
-          fi
           if [[ "$selected" == *",tap-local,"* ]]; then
             result="$(result_for_job github-tap-local)"
             if [[ "$LANE_ADMITTED_GITHUB" == true ]]; then
@@ -375,26 +309,6 @@ jobs:
             case "$result" in
               success|skipped) ;;
               *) echo "unselected CI job github-tap-local failed unexpectedly: $result" >&2; exit 1 ;;
-            esac
-          fi
-          if [[ "$selected" == *",tap-local,"* ]]; then
-            result="$(result_for_job velnor-tap-local)"
-            if [[ "$LANE_ADMITTED_VELNOR" == true ]]; then
-              case "$result" in
-                success) ;;
-                *) echo "selected CI job velnor-tap-local did not pass: $result" >&2; exit 1 ;;
-              esac
-            else
-              case "$result" in
-                skipped) ;;
-                *) echo "selected CI job velnor-tap-local ran outside its lane admission (LANE_ADMITTED_VELNOR=$LANE_ADMITTED_VELNOR): $result" >&2; exit 1 ;;
-              esac
-            fi
-          else
-            result="$(result_for_job velnor-tap-local)"
-            case "$result" in
-              success|skipped) ;;
-              *) echo "unselected CI job velnor-tap-local failed unexpectedly: $result" >&2; exit 1 ;;
             esac
           fi
   required:

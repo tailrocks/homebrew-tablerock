@@ -120,7 +120,7 @@ on:
 jobs:
   verify-github:
     name: GitHub
-    if: ${{ inputs.lane == 'github' && contains(format(',{0},', inputs.selected_units), format(',{0},', inputs.unit)) && (github.event_name == 'pull_request' || (github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'schedule')) || (github.event_name == 'workflow_dispatch' && (github.event.inputs.runner == 'github' || github.event.inputs.runner == 'both' || github.event.inputs.runner == ''))) }}
+    if: ${{ inputs.lane == 'github' && contains(format(',{0},', inputs.selected_units), format(',{0},', inputs.unit)) && (github.event_name == 'pull_request' || (github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'schedule')) || (github.event_name == 'workflow_dispatch' && (github.event.inputs.runner == 'github' || github.event.inputs.runner == 'both' || github.event.inputs.runner == ''))) && inputs.apple_executor != true }}
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
@@ -344,10 +344,10 @@ jobs:
           job_label: ${{ inputs.unit }}
           ci_lane: github
 
-  verify-velnor:
-    name: Velnor
-    if: ${{ inputs.lane == 'velnor' && contains(format(',{0},', inputs.selected_units), format(',{0},', inputs.unit)) && ((github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'schedule')) || (github.event_name == 'workflow_dispatch' && (github.event.inputs.runner == 'velnor' || github.event.inputs.runner == 'both' || github.event.inputs.runner == ''))) }}
-    runs-on: [self-hosted, velnor-target-mvp]
+  verify-github-apple:
+    name: "GitHub · Apple"
+    if: ${{ inputs.lane == 'github' && contains(format(',{0},', inputs.selected_units), format(',{0},', inputs.unit)) && (github.event_name == 'pull_request' || (github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'schedule')) || (github.event_name == 'workflow_dispatch' && (github.event.inputs.runner == 'github' || github.event.inputs.runner == 'both' || github.event.inputs.runner == ''))) && inputs.apple_executor }}
+    runs-on: macos-15
     timeout-minutes: 45
     steps:
       - name: Mark CI job start
@@ -386,21 +386,14 @@ jobs:
               echo "- Dependencies: $UNIT_DEPENDENCIES"
             fi
           } >> "$GITHUB_STEP_SUMMARY"
-      - name: Velnor runner identity
-        shell: bash
-        run: |
-          set -euo pipefail
-          {
-            echo '## Velnor runner identity'
-            echo
-            echo "- Host: ${VELNOR_HOST:-unset}"
-            echo "- Instance: ${VELNOR_INSTANCE:-unset}"
-            echo "- Slot: ${VELNOR_SLOT:-unset}"
-            echo "- GitHub runner: ${RUNNER_NAME:-unset}"
-            echo "- OS/arch: ${RUNNER_OS:-unset}/${RUNNER_ARCH:-unset}"
-            echo "- Execution backend: ${VELNOR_EXECUTION_BACKEND:-unset}"
-            echo "- Velnor version: ${VELNOR_MANIFEST_VERSION:-${VELNOR_SOURCE_SHA:-unset}}"
-          } | tee -a "${GITHUB_STEP_SUMMARY:-/dev/null}"
+      - name: Set up Velnor workflow runtime
+        id: runtime
+        if: ${{ runner.environment == 'github-hosted' }}
+        uses: tailrocks/velnor/.github/actions/setup-velnor-workflow@4fa7a3a85f141a6bb95bc9bdf0eef9e3ddde165d
+        with:
+          rev: 4fa7a3a85f141a6bb95bc9bdf0eef9e3ddde165d
+      - name: Set trusted workflow policy revision
+        run: echo "VELNOR_WORKFLOW_POLICY_REVISION=4fa7a3a85f141a6bb95bc9bdf0eef9e3ddde165d" >> "$GITHUB_ENV"
       - name: Mark runner setup end
         if: always()
         run: |
@@ -444,6 +437,25 @@ jobs:
               chmod 0444 "$marker" 2>/dev/null || true
             fi
           fi
+      - name: Set up Mise
+        uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+        with:
+          install: false
+      - name: Prepare Linuxbrew path
+        shell: bash
+        run: |
+          set -euo pipefail
+          if command -v brew >/dev/null 2>&1; then
+            exit 0
+          fi
+          linuxbrew_bin=/home/linuxbrew/.linuxbrew/bin
+          linuxbrew_sbin=/home/linuxbrew/.linuxbrew/sbin
+          if [[ ! -x "$linuxbrew_bin/brew" ]]; then
+            printf '%s\n' 'Homebrew unavailable: install brew or expose it on PATH' >&2
+            exit 1
+          fi
+          [[ -n "${GITHUB_PATH:-}" ]] || { printf '%s\n' 'GITHUB_PATH is unavailable' >&2; exit 1; }
+          printf '%s\n%s\n' "$linuxbrew_bin" "$linuxbrew_sbin" >> "$GITHUB_PATH"
       - name: Mark tool bootstrap end
         if: always()
         run: |
@@ -531,5 +543,5 @@ jobs:
         uses: tailrocks/velnor/.github/actions/report-velnor-ci-outcomes@4fa7a3a85f141a6bb95bc9bdf0eef9e3ddde165d
         with:
           job_label: ${{ inputs.unit }}
-          ci_lane: velnor
+          ci_lane: github
 

@@ -4,7 +4,7 @@ repository = "tailrocks/homebrew-tablerock"
 profile = "generic"
 verified = true
 default_branch = "main"
-runners = "both"
+runners = "github"
 
 [analysis]
 method = "static-filesystem-and-manifest-inspection"
