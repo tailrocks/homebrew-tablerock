@@ -10,11 +10,18 @@
 #    runner has one, raising the 60/hr unauthenticated quota.
 set -euo pipefail
 
-OUR_TAP="tailrocks/homebrew-tablerock"
+# Canonical brew name strips the homebrew- repo prefix: repo
+# tailrocks/homebrew-tablerock, tap dir .../Taps/tailrocks/homebrew-tablerock,
+# listed by `brew tap` as tailrocks/tablerock.
+OUR_TAP="tailrocks/tablerock"
+OUR_TAP_DIR="homebrew-tablerock"
 
 tap_dir="$(brew --repo)/Library/Taps/tailrocks"
 mkdir -p "$tap_dir"
-ln -sfn "$PWD" "$tap_dir/homebrew-tablerock"
+# Replace any pre-existing (e.g. upstream) checkout of this tap slot: ln -sfn
+# over a real directory would nest the link inside it instead of replacing it.
+rm -rf "${tap_dir:?}/$OUR_TAP_DIR"
+ln -s "$PWD" "$tap_dir/$OUR_TAP_DIR"
 
 foreign="$(brew tap | grep -v -x "$OUR_TAP" || true)"
 if [ -n "$foreign" ]; then
@@ -23,7 +30,7 @@ if [ -n "$foreign" ]; then
     brew untap --force "$tap" || true
   done <<< "$foreign"
 fi
-brew trust tailrocks/tablerock
+brew trust "$OUR_TAP"
 
 if [ -n "${GITHUB_ENV:-}" ] && command -v gh >/dev/null 2>&1; then
   if token="$(gh auth token 2>/dev/null)" && [ -n "$token" ]; then
