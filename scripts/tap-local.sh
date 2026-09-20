@@ -6,8 +6,9 @@
 #    no URL) or API quota burned on foreign formulae fails our audit.
 #    Our formulae/casks have no cross-tap dependencies, so foreign taps
 #    are never needed here. Runners are ephemeral; nothing persists.
-# 3. Best-effort: authenticate brew API calls from `gh auth token` when the
-#    runner has one, raising the 60/hr unauthenticated quota.
+# 3. Authenticate brew API calls from the step GH_TOKEN (fallback: `gh auth
+#    token`), raising the 60/hr unauthenticated quota that --online cask
+#    audits exhaust on shared runner IPs.
 set -euo pipefail
 
 # Canonical brew name strips the homebrew- repo prefix: repo
@@ -32,8 +33,14 @@ if [ -n "$foreign" ]; then
 fi
 brew trust "$OUR_TAP"
 
-if [ -n "${GITHUB_ENV:-}" ] && command -v gh >/dev/null 2>&1; then
-  if token="$(gh auth token 2>/dev/null)" && [ -n "$token" ]; then
+# The generated workflow exposes GH_TOKEN (and MISE_GITHUB_TOKEN) to CI steps;
+# `gh auth token` is a fallback for environments where it does not.
+if [ -n "${GITHUB_ENV:-}" ]; then
+  token="${GH_TOKEN:-${MISE_GITHUB_TOKEN:-}}"
+  if [ -z "$token" ] && command -v gh >/dev/null 2>&1; then
+    token="$(gh auth token 2>/dev/null || true)"
+  fi
+  if [ -n "$token" ]; then
     echo "::add-mask::$token"
     echo "HOMEBREW_GITHUB_API_TOKEN=$token" >> "$GITHUB_ENV"
   fi
