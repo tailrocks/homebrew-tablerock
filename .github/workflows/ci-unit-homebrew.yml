@@ -32,6 +32,10 @@ on:
         required: false
         type: boolean
         default: false
+      mbx_enabled:
+        required: false
+        type: boolean
+        default: false
       mbx_compat:
         required: false
         type: string
@@ -96,11 +100,27 @@ on:
         required: false
         type: boolean
         default: false
+      candidate_publish:
+        required: false
+        type: boolean
+        default: false
+      apple_executor:
+        required: false
+        type: boolean
+        default: false
+      unit_dependencies:
+        required: false
+        type: string
+        default: ""
+      unit_admission:
+        required: false
+        type: string
+        default: ""
 
 jobs:
   verify-github:
     name: GitHub
-    if: ${{ inputs.lane == 'github' && contains(format(',{0},', inputs.selected_units), format(',{0},', inputs.unit)) && (github.event_name == 'pull_request' || (github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'schedule')) || (github.event_name == 'workflow_dispatch' && (github.event.inputs.runner == 'github' || github.event.inputs.runner == 'both' || github.event.inputs.runner == ''))) }}
+    if: ${{ inputs.lane == 'github' && contains(format(',{0},', inputs.selected_units), format(',{0},', inputs.unit)) && (github.event_name == 'pull_request' || (github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'schedule')) || (github.event_name == 'workflow_dispatch' && (github.event.inputs.runner == 'github' || github.event.inputs.runner == 'both' || github.event.inputs.runner == ''))) && inputs.apple_executor != true }}
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
@@ -121,19 +141,38 @@ jobs:
         with:
           persist-credentials: false
           ref: ${{ inputs.head_sha }}
+      - name: Record unit dependencies
+        env:
+          UNIT_ID: ${{ inputs.unit }}
+          UNIT_DEPENDENCIES: ${{ inputs.unit_dependencies }}
+          UNIT_ADMISSION: ${{ inputs.unit_admission }}
+          UNIT_LANE: ${{ inputs.lane }}
+        run: |
+          {
+            echo '## Unit dependencies'
+            echo
+            echo "- Unit: $UNIT_ID"
+            echo "- Lane: $UNIT_LANE"
+            echo "- Admission: $UNIT_ADMISSION"
+            if [[ -z "$UNIT_DEPENDENCIES" ]]; then
+              echo '- Dependencies: none'
+            else
+              echo "- Dependencies: $UNIT_DEPENDENCIES"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
       - name: Download Velnor workflow runtime
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: velnor-workflow-runtime-b9c3156cdb88e63c11b9e595a3e694b02238c09a-${{ runner.os }}-${{ runner.arch }}
+          name: velnor-workflow-runtime-4fa7a3a85f141a6bb95bc9bdf0eef9e3ddde165d-${{ runner.os }}-${{ runner.arch }}
           path: .velnor-workflow-runtime
       - name: Verify Velnor workflow runtime
         shell: bash
         env:
-          EXPECTED_REVISION: b9c3156cdb88e63c11b9e595a3e694b02238c09a
+          EXPECTED_REVISION: 4fa7a3a85f141a6bb95bc9bdf0eef9e3ddde165d
         run: |
           set -euo pipefail
           manifest=.velnor-workflow-runtime/manifest.json
-          jq -e --arg revision "$EXPECTED_REVISION" --arg repository "$GITHUB_REPOSITORY" --arg platform "${RUNNER_OS}-${RUNNER_ARCH}" --arg run_id "$GITHUB_RUN_ID" '.revision == $revision and .repository == $repository and .platform == $platform and .run_id == $run_id and (.run_id | test("^[0-9]+$")) and .job_id != "" and (.binary_sha256 | test("^[0-9a-f]{64}$")) and .policy_revision == $revision and (.policy_binary_sha256 | test("^[0-9a-f]{64}$"))' "$manifest" >/dev/null
+          jq -e --arg revision "$EXPECTED_REVISION" --arg repository "$GITHUB_REPOSITORY" --arg platform "${RUNNER_OS}-${RUNNER_ARCH}" --arg run_id "$GITHUB_RUN_ID" '.revision == $revision and .repository == $repository and .platform == $platform and .run_id == $run_id and (.run_id | test("^[0-9]+$")) and .job_id != "" and (.binary_sha256 | test("^[0-9a-f]{64}$")) and (.policy_binary_sha256 | test("^[0-9a-f]{64}$")) and (.closure | test("^[0-9a-f]{64}$")) and (.policy_closure | test("^[0-9a-f]{64}$"))' "$manifest" >/dev/null
           expected="$(jq -er '.binary_sha256' "$manifest")"
           actual="$(sha256sum .velnor-workflow-runtime/velnor-workflow | awk '{print $1}')"
           [[ "$actual" == "$expected" ]] || { echo "::error::runtime digest mismatch" >&2; exit 1; }
@@ -143,14 +182,15 @@ jobs:
       - name: Add Velnor workflow runtime to PATH
         shell: bash
         env:
-          EXPECTED_REVISION: b9c3156cdb88e63c11b9e595a3e694b02238c09a
+          EXPECTED_REVISION: 4fa7a3a85f141a6bb95bc9bdf0eef9e3ddde165d
         run: |
           set -euo pipefail
           home="$RUNNER_TEMP/velnor-workflow-runtime-artifact"
           install -Dm0755 .velnor-workflow-runtime/velnor-workflow "$home/bin/velnor-workflow"
           install -Dm0755 .velnor-workflow-runtime/velnor-workflow-policy "$home/bin/velnor-workflow-policy"
-          reported="$("$home/bin/velnor-workflow-policy" --revision)"
-          [[ "$reported" == "$EXPECTED_REVISION" ]] || { echo "::error::policy runtime reports revision $reported, expected $EXPECTED_REVISION" >&2; exit 1; }
+          expected_closure="$(jq -er '.policy_closure' .velnor-workflow-runtime/manifest.json)"
+          reported="$("$home/bin/velnor-workflow-policy" --closure)"
+          [[ "$reported" == "$expected_closure" ]] || { echo "::error::policy runtime reports closure $reported, expected $expected_closure" >&2; exit 1; }
           echo "$home/bin" >> "$GITHUB_PATH"
           echo "VELNOR_WORKFLOW_PINNED_BINARY=$home/bin/velnor-workflow-policy" >> "$GITHUB_ENV"
       - name: Mark runner setup end
@@ -196,6 +236,10 @@ jobs:
               chmod 0444 "$marker" 2>/dev/null || true
             fi
           fi
+      - name: Set up Mise
+        uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+        with:
+          install: false
       - name: Prepare Linuxbrew path
         shell: bash
         run: |
@@ -295,15 +339,15 @@ jobs:
           fi
       - name: Report phase timings and cache outcomes
         if: always()
-        uses: tailrocks/velnor/.github/actions/report-velnor-ci-outcomes@b9c3156cdb88e63c11b9e595a3e694b02238c09a
+        uses: tailrocks/velnor/.github/actions/report-velnor-ci-outcomes@4fa7a3a85f141a6bb95bc9bdf0eef9e3ddde165d
         with:
           job_label: ${{ inputs.unit }}
           ci_lane: github
 
-  verify-velnor:
-    name: Velnor
-    if: ${{ inputs.lane == 'velnor' && contains(format(',{0},', inputs.selected_units), format(',{0},', inputs.unit)) && (github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && (github.event.inputs.runner == 'velnor' || github.event.inputs.runner == 'both' || github.event.inputs.runner == '')))) }}
-    runs-on: [self-hosted, velnor-target-mvp]
+  verify-github-apple:
+    name: "GitHub · Apple"
+    if: ${{ inputs.lane == 'github' && contains(format(',{0},', inputs.selected_units), format(',{0},', inputs.unit)) && (github.event_name == 'pull_request' || (github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'schedule')) || (github.event_name == 'workflow_dispatch' && (github.event.inputs.runner == 'github' || github.event.inputs.runner == 'both' || github.event.inputs.runner == ''))) && inputs.apple_executor }}
+    runs-on: macos-15
     timeout-minutes: 45
     steps:
       - name: Mark CI job start
@@ -323,21 +367,33 @@ jobs:
         with:
           persist-credentials: false
           ref: ${{ inputs.head_sha }}
-      - name: Velnor runner identity
-        shell: bash
+      - name: Record unit dependencies
+        env:
+          UNIT_ID: ${{ inputs.unit }}
+          UNIT_DEPENDENCIES: ${{ inputs.unit_dependencies }}
+          UNIT_ADMISSION: ${{ inputs.unit_admission }}
+          UNIT_LANE: ${{ inputs.lane }}
         run: |
-          set -euo pipefail
           {
-            echo '## Velnor runner identity'
+            echo '## Unit dependencies'
             echo
-            echo "- Host: ${VELNOR_HOST:-unset}"
-            echo "- Instance: ${VELNOR_INSTANCE:-unset}"
-            echo "- Slot: ${VELNOR_SLOT:-unset}"
-            echo "- GitHub runner: ${RUNNER_NAME:-unset}"
-            echo "- OS/arch: ${RUNNER_OS:-unset}/${RUNNER_ARCH:-unset}"
-            echo "- Execution backend: ${VELNOR_EXECUTION_BACKEND:-unset}"
-            echo "- Velnor version: ${VELNOR_MANIFEST_VERSION:-${VELNOR_SOURCE_SHA:-unset}}"
-          } | tee -a "${GITHUB_STEP_SUMMARY:-/dev/null}"
+            echo "- Unit: $UNIT_ID"
+            echo "- Lane: $UNIT_LANE"
+            echo "- Admission: $UNIT_ADMISSION"
+            if [[ -z "$UNIT_DEPENDENCIES" ]]; then
+              echo '- Dependencies: none'
+            else
+              echo "- Dependencies: $UNIT_DEPENDENCIES"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Set up Velnor workflow runtime
+        id: runtime
+        if: ${{ runner.environment == 'github-hosted' }}
+        uses: tailrocks/velnor/.github/actions/setup-velnor-workflow@4fa7a3a85f141a6bb95bc9bdf0eef9e3ddde165d
+        with:
+          rev: 4fa7a3a85f141a6bb95bc9bdf0eef9e3ddde165d
+      - name: Set trusted workflow policy revision
+        run: echo "VELNOR_WORKFLOW_POLICY_REVISION=4fa7a3a85f141a6bb95bc9bdf0eef9e3ddde165d" >> "$GITHUB_ENV"
       - name: Mark runner setup end
         if: always()
         run: |
@@ -381,6 +437,25 @@ jobs:
               chmod 0444 "$marker" 2>/dev/null || true
             fi
           fi
+      - name: Set up Mise
+        uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+        with:
+          install: false
+      - name: Prepare Linuxbrew path
+        shell: bash
+        run: |
+          set -euo pipefail
+          if command -v brew >/dev/null 2>&1; then
+            exit 0
+          fi
+          linuxbrew_bin=/home/linuxbrew/.linuxbrew/bin
+          linuxbrew_sbin=/home/linuxbrew/.linuxbrew/sbin
+          if [[ ! -x "$linuxbrew_bin/brew" ]]; then
+            printf '%s\n' 'Homebrew unavailable: install brew or expose it on PATH' >&2
+            exit 1
+          fi
+          [[ -n "${GITHUB_PATH:-}" ]] || { printf '%s\n' 'GITHUB_PATH is unavailable' >&2; exit 1; }
+          printf '%s\n%s\n' "$linuxbrew_bin" "$linuxbrew_sbin" >> "$GITHUB_PATH"
       - name: Mark tool bootstrap end
         if: always()
         run: |
@@ -465,8 +540,8 @@ jobs:
           fi
       - name: Report phase timings and cache outcomes
         if: always()
-        uses: tailrocks/velnor/.github/actions/report-velnor-ci-outcomes@b9c3156cdb88e63c11b9e595a3e694b02238c09a
+        uses: tailrocks/velnor/.github/actions/report-velnor-ci-outcomes@4fa7a3a85f141a6bb95bc9bdf0eef9e3ddde165d
         with:
           job_label: ${{ inputs.unit }}
-          ci_lane: velnor
+          ci_lane: github
 

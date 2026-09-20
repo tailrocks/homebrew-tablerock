@@ -4,7 +4,7 @@ repository = "tailrocks/homebrew-tablerock"
 profile = "generic"
 verified = true
 default_branch = "main"
-runners = "both"
+runners = "github"
 
 [analysis]
 method = "static-filesystem-and-manifest-inspection"
@@ -26,7 +26,19 @@ label = "Homebrew"
 kind = "homebrew"
 root = "."
 watch = ["Brewfile", "Casks/**", "Formula/**"]
-github_pr_commands = ["brew audit --strict --online"]
-github_full_commands = ["brew audit --strict --online"]
-velnor_pr_commands = ["brew audit --strict --online"]
-velnor_full_commands = ["brew audit --strict --online"]
+github_pr_commands = ["mise run brew:tap-local", "brew audit --strict --online"]
+github_full_commands = ["mise run brew:tap-local", "brew audit --strict --online"]
+velnor_pr_commands = ["mise run brew:tap-local", "brew audit --strict --online"]
+velnor_full_commands = ["mise run brew:tap-local", "brew audit --strict --online"]
+depends_on = ["tap-local"]
+
+[[unit]]
+id = "tap-local"
+label = "Tap local checkout"
+kind = "homebrew"
+root = ""
+watch = []
+github_pr_commands = ["mise run brew:tap-local"]
+github_full_commands = ["mise run brew:tap-local"]
+velnor_pr_commands = ["mise run brew:tap-local"]
+velnor_full_commands = ["mise run brew:tap-local"]

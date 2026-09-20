@@ -2,7 +2,6 @@
 class Tablerock < Formula
   desc "PostgreSQL, ClickHouse, and Redis workbench"
   homepage "https://github.com/tailrocks/tablerock"
-  version "0.1.0"
   license "Apache-2.0"
 
   on_macos do
