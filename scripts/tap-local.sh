@@ -57,8 +57,14 @@ if [ -n "${GITHUB_ENV:-}" ]; then
 fi
 
 if [ "${GITHUB_ACTIONS:-}" = "true" ] && [ "$(uname -s)" = "Linux" ] && ! command -v plutil >/dev/null 2>&1; then
-  sudo install -m 0755 "$PWD/scripts/plutil-shim.sh" /usr/local/bin/plutil
-  command -v plutil >/dev/null 2>&1 || {
+  # Into brew's own bin: brew sanitizes PATH for audit children, so
+  # /usr/local/bin is invisible to `/usr/bin/env plutil` there (observed
+  # 127 after a verified /usr/local/bin install). The prefix is
+  # runner-owned (this script already writes $(brew --repo) unprivileged),
+  # so no sudo is needed.
+  brew_bin="$(brew --prefix)/bin"
+  install -m 0755 "$PWD/scripts/plutil-shim.sh" "$brew_bin/plutil"
+  test -x "$brew_bin/plutil" || {
     echo "tap-local: plutil shim install failed" >&2
     exit 1
   }
