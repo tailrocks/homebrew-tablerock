@@ -9,6 +9,12 @@
 # 3. Authenticate brew API calls from the step GH_TOKEN (fallback: `gh auth
 #    token`), raising the 60/hr unauthenticated quota that --online cask
 #    audits exhaust on shared runner IPs.
+# 4. Linux CI only: cask `--online` audit shells out to Apple's `plutil`
+#    (absent on Linux; exit 127 fails the whole audit). Install the minimal
+#    compatible scripts/plutil-shim.sh so the audit still validates
+#    artifact plists. No-op on macOS, outside CI, or when real plutil
+#    exists. DEFERRED ROOT CAUSE: remove with the shim when the generator
+#    renders multi-platform unit legs and the apple leg returns.
 set -euo pipefail
 
 # Canonical brew name strips the homebrew- repo prefix: repo
@@ -48,6 +54,20 @@ if [ -n "${GITHUB_ENV:-}" ]; then
     echo "::add-mask::$token"
     echo "HOMEBREW_GITHUB_API_TOKEN=$token" >> "$GITHUB_ENV"
   fi
+fi
+
+if [ "${GITHUB_ACTIONS:-}" = "true" ] && [ "$(uname -s)" = "Linux" ] && ! command -v plutil >/dev/null 2>&1; then
+  # Into /usr/bin: bin/brew hard-resets PATH to the system set
+  # (/usr/bin:/bin:/usr/sbin:/sbin) before exec, so neither /usr/local/bin
+  # nor the linuxbrew prefix bin is visible to `/usr/bin/env plutil` in
+  # audit children (observed 127 after verified installs to both).
+  # Passwordless sudo exists on GitHub-hosted runners.
+  sudo install -m 0755 "$PWD/scripts/plutil-shim.sh" /usr/bin/plutil
+  test -x /usr/bin/plutil || {
+    echo "tap-local: plutil shim install failed" >&2
+    exit 1
+  }
+  echo "tap-local: plutil shim installed (Linux CI)"
 fi
 
 if brew tap | grep -q -x "$OUR_TAP"; then
